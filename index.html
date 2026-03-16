@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Engine</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <header class="header">
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div>
+        <div class="brand-name">SIGNAL ENGINE</div>
+        <div class="brand-sub">PRIVATE — DECISION ONLY</div>
+      </div>
+    </div>
+    <div class="header-meta">
+      <div class="mkt-chip">SPY <span class="up">+0.28%</span></div>
+      <div class="mkt-chip">VIX <span class="dn">18.4</span></div>
+      <div class="time-badge" id="live-time">LIVE</div>
+    </div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="signals">SIGNALS</button>
+    <button class="tab" data-tab="portfolio">PORTFOLIO</button>
+    <button class="tab" data-tab="risk">RISK</button>
+  </nav>
+
+  <main id="main-content"></main>
+
+  <div id="modal-container"></div>
+
+  <footer class="disclaimer">
+    ⚠ Simulated data only — not financial advice. For decision support use only.
+  </footer>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
