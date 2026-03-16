@@ -1,4 +1,4 @@
-// ── LIVE CLOCK ──
+// ── CLOCK ──
 function updateClock() {
   const el = document.getElementById('live-time');
   if (!el) return;
@@ -11,15 +11,68 @@ function updateClock() {
 setInterval(updateClock, 1000);
 updateClock();
 
+// ── LIVE STOCKS STATE ──
+let STOCKS = WATCHLIST.map(s => ({
+  ...s,
+  price: s.entry,
+  change: 0,
+  loaded: false
+}));
+
+// ── FETCH FROM POLYGON ──
+async function fetchPrices() {
+  const tickers = WATCHLIST.map(s => s.ticker).join(',');
+  const url = `https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers}&apiKey=${API_KEY}`;
+
+  try {
+    const res  = await fetch(url);
+    const data = await res.json();
+
+    if (!data.tickers) return;
+
+    data.tickers.forEach(t => {
+      const idx = STOCKS.findIndex(s => s.ticker === t.ticker);
+      if (idx === -1) return;
+
+      const price  = t.day?.c || t.prevDay?.c || STOCKS[idx].price;
+      const open   = t.day?.o || t.prevDay?.o || price;
+      const change = open > 0 ? parseFloat((((price - open) / open) * 100).toFixed(2)) : 0;
+
+      STOCKS[idx] = {
+        ...STOCKS[idx],
+        price: parseFloat(price.toFixed(2)),
+        change: change,
+        loaded: true
+      };
+    });
+
+    refreshCurrentTab();
+
+  } catch (err) {
+    console.error('Polygon fetch failed:', err);
+  }
+}
+
+// ── REFRESH EVERY 2 MINUTES ──
+fetchPrices();
+setInterval(fetchPrices, 120000);
+
+// ── TAB STATE ──
+let currentTab = 'signals';
+
+function refreshCurrentTab() {
+  if (currentTab === 'signals')   renderSignals();
+  if (currentTab === 'portfolio') renderPortfolio();
+  if (currentTab === 'risk')      renderRisk();
+}
+
 // ── TABS ──
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    const target = tab.dataset.tab;
-    if (target === 'signals')   renderSignals();
-    if (target === 'portfolio') renderPortfolio();
-    if (target === 'risk')      renderRisk();
+    currentTab = tab.dataset.tab;
+    refreshCurrentTab();
   });
 });
 
@@ -53,11 +106,14 @@ function confColor(signal) {
   if (signal === 'SELL') return 'var(--dn)';
   return 'var(--brown-light)';
 }
+function upsidePct(s) {
+  return (((s.target - s.price) / s.price) * 100).toFixed(1);
+}
 
 // ── SIGNAL CARD ──
 function buildSigCard(s) {
-  const upside = (((s.target - s.price) / s.price) * 100).toFixed(1);
-  const tfClass = s.tf === 'SHORT' ? 'tf-short' : 'tf-long';
+  const tfClass    = s.tf === 'SHORT' ? 'tf-short' : 'tf-long';
+  const priceLabel = s.loaded ? `$${s.price.toFixed(2)}` : '...';
 
   return `
     <div class="sig-card ${sigClass(s.signal)}" data-ticker="${s.ticker}">
@@ -69,8 +125,8 @@ function buildSigCard(s) {
         <span class="sig-badge ${badgeClass(s.signal)}">${s.signal}</span>
       </div>
       <div class="price-row">
-        <span class="price">$${s.price.toFixed(2)}</span>
-        ${changeHTML(s.change)}
+        <span class="price">${priceLabel}</span>
+        ${s.loaded ? changeHTML(s.change) : '<span style="color:var(--grey-text);font-size:11px">fetching...</span>'}
       </div>
       <div class="levels">
         <div class="level">
@@ -108,7 +164,6 @@ function renderSignals() {
   const pct   = ((PORTFOLIO.current / PORTFOLIO.goal) * 100).toFixed(1);
 
   document.getElementById('main-content').innerHTML = `
-
     <div class="goal-banner">
       <div class="goal-row">
         <span class="goal-label">GOAL TRACKER — $1M BY JAN 2027</span>
@@ -179,13 +234,13 @@ function renderSignals() {
 
 // ── PORTFOLIO TAB ──
 function renderPortfolio() {
-  const pct = ((PORTFOLIO.current / PORTFOLIO.goal) * 100).toFixed(1);
+  const pct  = ((PORTFOLIO.current / PORTFOLIO.goal) * 100).toFixed(1);
 
   const rows = STOCKS.map(s => {
-    const upside = (((s.target - s.price) / s.price) * 100).toFixed(1);
+    const up     = upsidePct(s);
     const alloc  = s.signal !== 'SELL' ? s.pos : 0;
     const dollar = Math.round(PORTFOLIO.current * (alloc / 100));
-    const upsideColor = parseFloat(upside) > 0 ? 'var(--up)' : 'var(--dn)';
+    const upColor = parseFloat(up) > 0 ? 'var(--up)' : 'var(--dn)';
 
     return `
       <tr>
@@ -194,9 +249,9 @@ function renderPortfolio() {
           <div class="name-cell">${s.name}</div>
         </td>
         <td><span class="sig-badge ${badgeClass(s.signal)}">${s.signal}</span></td>
-        <td class="price-cell">$${s.price.toFixed(2)}</td>
-        <td style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:${upsideColor}">
-          ${parseFloat(upside) > 0 ? '+' : ''}${upside}%
+        <td class="price-cell">${s.loaded ? '$' + s.price.toFixed(2) : '...'}</td>
+        <td style="font-family:'Courier New',monospace;font-size:12px;font-weight:700;color:${upColor}">
+          ${parseFloat(up) > 0 ? '+' : ''}${up}%
         </td>
         <td style="font-family:'Courier New',monospace;color:var(--white);font-weight:700;font-size:12px">
           ${alloc > 0 ? alloc + '%' : '—'}
@@ -208,7 +263,6 @@ function renderPortfolio() {
   }).join('');
 
   document.getElementById('main-content').innerHTML = `
-
     <div class="goal-banner">
       <div class="goal-row">
         <span class="goal-label">PORTFOLIO VALUE</span>
@@ -258,7 +312,6 @@ function renderPortfolio() {
 // ── RISK TAB ──
 function renderRisk() {
   document.getElementById('main-content').innerHTML = `
-
     <div class="summary-row">
       <div class="sum-box">
         <div class="sum-val" style="color:var(--brown-light)">MED</div>
@@ -279,15 +332,14 @@ function renderRisk() {
     </div>
 
     <div class="risk-grid">
-
       <div class="risk-card">
         <div class="risk-title">MARKET CONDITIONS</div>
         ${[
-          ['Trend Strength', 'BULLISH',    'var(--up)'],
-          ['Breadth',        'NARROWING',  'var(--brown-light)'],
-          ['Volume',         'ABOVE AVG',  'var(--up)'],
-          ['Momentum',       'HIGH',       'var(--up)'],
-          ['Regime',         'RISK-ON',    'var(--up)'],
+          ['Trend Strength', 'BULLISH',   'var(--up)'],
+          ['Breadth',        'NARROWING', 'var(--brown-light)'],
+          ['Volume',         'ABOVE AVG', 'var(--up)'],
+          ['Momentum',       'HIGH',      'var(--up)'],
+          ['Regime',         'RISK-ON',   'var(--up)'],
         ].map(([n,v,c]) => `
           <div class="risk-item">
             <span class="risk-name">${n}</span>
@@ -298,11 +350,11 @@ function renderRisk() {
       <div class="risk-card">
         <div class="risk-title">SECTOR ROTATION</div>
         ${[
-          ['Technology',  'OVERWEIGHT',  'var(--up)'],
-          ['Healthcare',  'NEUTRAL',     'var(--grey-text)'],
-          ['Energy',      'UNDERWEIGHT', 'var(--dn)'],
-          ['Financials',  'NEUTRAL',     'var(--grey-text)'],
-          ['Consumer',    'NEUTRAL',     'var(--grey-text)'],
+          ['Technology', 'OVERWEIGHT',  'var(--up)'],
+          ['Healthcare', 'NEUTRAL',     'var(--grey-text)'],
+          ['Energy',     'UNDERWEIGHT', 'var(--dn)'],
+          ['Financials', 'NEUTRAL',     'var(--grey-text)'],
+          ['Consumer',   'NEUTRAL',     'var(--grey-text)'],
         ].map(([n,v,c]) => `
           <div class="risk-item">
             <span class="risk-name">${n}</span>
@@ -329,14 +381,13 @@ function renderRisk() {
         <div class="risk-title">POSITION ALERTS</div>
         <div class="alert-box alert-sell">
           <div class="alert-label" style="color:var(--dn)">⚠ URGENT</div>
-          TSLA breaking down. Exit immediately at market open.
+          SMCI accounting concerns unresolved. No new entries until clarity emerges.
         </div>
         <div class="alert-box alert-hold">
           <div class="alert-label" style="color:var(--brown-light)">⚡ WATCH</div>
-          NVDA approaching target. Consider taking 50% profits at $168.
+          APP approaching target range. Consider taking 40% profits above $400.
         </div>
       </div>
-
     </div>
   `;
 }
@@ -348,7 +399,7 @@ function openModal(ticker) {
 
   const actionClass = s.signal === 'BUY' ? 'action-buy' : s.signal === 'SELL' ? 'action-sell' : 'action-hold';
   const actionText  = s.signal === 'BUY' ? 'BUY NOW — ENTER POSITION' : s.signal === 'SELL' ? 'SELL IMMEDIATELY — EXIT' : 'HOLD — MAINTAIN POSITION';
-  const upside      = (((s.target - s.price) / s.price) * 100).toFixed(1);
+  const up          = upsidePct(s);
 
   document.getElementById('modal-container').innerHTML = `
     <div class="modal-overlay" id="modal-overlay">
@@ -367,7 +418,7 @@ function openModal(ticker) {
           <div class="modal-reason">${s.reason}</div>
           <div class="modal-grid">
             <div class="modal-stat">
-              <div class="modal-stat-v">$${s.price.toFixed(2)}</div>
+              <div class="modal-stat-v">${s.loaded ? '$' + s.price.toFixed(2) : '...'}</div>
               <div class="modal-stat-l">CURRENT</div>
             </div>
             <div class="modal-stat">
@@ -383,8 +434,10 @@ function openModal(ticker) {
               <div class="modal-stat-l">CONVICTION</div>
             </div>
             <div class="modal-stat">
-              <div class="modal-stat-v" style="color:${s.tf === 'SHORT' ? 'var(--stone-blue-light)' : '#9090c0'}">${s.tf}</div>
-              <div class="modal-stat-l">TIMEFRAME</div>
+              <div class="modal-stat-v" style="color:${parseFloat(up) > 0 ? 'var(--up)' : 'var(--dn)'}">
+                ${parseFloat(up) > 0 ? '+' : ''}${up}%
+              </div>
+              <div class="modal-stat-l">UPSIDE</div>
             </div>
             <div class="modal-stat">
               <div class="modal-stat-v" style="color:${s.risk === 'LOW' ? 'var(--up)' : s.risk === 'MED' ? 'var(--brown-light)' : 'var(--dn)'}">${s.risk}</div>
@@ -406,7 +459,6 @@ function closeModal() {
   document.getElementById('modal-container').innerHTML = '';
 }
 
-// ── BIND CARD CLICKS ──
 function bindCards() {
   document.querySelectorAll('[data-ticker]').forEach(card => {
     card.addEventListener('click', () => openModal(card.dataset.ticker));
